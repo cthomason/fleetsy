@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"net/http"
 
@@ -36,10 +37,10 @@ func main() {
 	}
 
 	// set up the data structures to hold the incoming data
-	deviceMap := make(map[string]string)
-	// load the device names
+	deviceMap := make(map[string][]time.Time)
+	// load the device names and initialize an empty array
 	for _, eachrecord := range records {
-		deviceMap[eachrecord[0]] = ""
+		deviceMap[eachrecord[0]] = []time.Time{}
 	}
 	fmt.Printf("deviceMap is %s\n", deviceMap)
 
@@ -47,7 +48,7 @@ func main() {
 	file.Close()
 
 	// Initialize api server
-	apiServer := &handlers.Server{}
+	apiServer := handlers.NewServer(deviceMap)
 
 	apiRouter := chi.NewRouter()
 	// register the handlers
