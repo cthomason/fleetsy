@@ -37,18 +37,20 @@ func main() {
 	}
 
 	// set up the data structures to hold the incoming data
-	deviceMap := make(map[string][]time.Time)
+	deviceHeartbeatMap := make(map[string][]time.Time)
+	deviceStatsMap := make(map[string][]handlers.DeviceStats)
 	// load the device names and initialize an empty array
 	for _, eachrecord := range records {
-		deviceMap[eachrecord[0]] = []time.Time{}
+		deviceHeartbeatMap[eachrecord[0]] = []time.Time{}
+		deviceStatsMap[eachrecord[0]] = []handlers.DeviceStats{}
 	}
-	fmt.Printf("deviceMap is %s\n", deviceMap)
+	fmt.Printf("deviceMap is %s\n", deviceHeartbeatMap)
 
 	// Clean up the file because we don't need it anymore
 	file.Close()
 
 	// Initialize api server
-	apiServer := handlers.NewServer(deviceMap)
+	apiServer := handlers.NewServer(deviceHeartbeatMap, deviceStatsMap)
 
 	apiRouter := chi.NewRouter()
 	// register the handlers

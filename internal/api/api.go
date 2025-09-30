@@ -13,8 +13,14 @@ import (
 
 // Server implements the generated ServerInterface.
 type Server struct {
-	deviceMutex sync.RWMutex
-	deviceMap   map[string][]time.Time
+	deviceMutex        sync.RWMutex
+	deviceHeartbeatMap map[string][]time.Time
+	deviceStatsMap     map[string][]DeviceStats
+}
+
+type DeviceStats struct {
+	SentAt     time.Time `json:"sent_at"`
+	UploadTime int64     `json:"upload_time"`
 }
 
 type HeartbeatPost struct {
@@ -23,18 +29,19 @@ type HeartbeatPost struct {
 
 type StatsPost struct {
 	SentAt     string `json:"sent_at"`
-	UploadTime int    `json:"upload_time"`
+	UploadTime int64  `json:"upload_time"` // upload time is in nanoseconds, use int64
 }
 
 type StatsGet struct {
-	Uptime        int    `json:"uptime"`
-	AvgUploadTime string `json:"avg_upload_time"`
+	Uptime        float32 `json:"uptime"`
+	AvgUploadTime string  `json:"avg_upload_time"`
 }
 
 // NewServer creates a new instance with the required dependencies
-func NewServer(deviceDB map[string][]time.Time) *Server {
+func NewServer(deviceDB map[string][]time.Time, statsDB map[string][]DeviceStats) *Server {
 	return &Server{
-		deviceMap: deviceDB,
+		deviceHeartbeatMap: deviceDB,
+		deviceStatsMap:     statsDB,
 	}
 }
 
@@ -54,10 +61,10 @@ func (s *Server) PostDevicesDeviceIdHeartbeat(w http.ResponseWriter, r *http.Req
 	// defer to guarantee it's unlocked later
 	defer s.deviceMutex.Unlock()
 	// validate the device exists in the db
-	_, found := s.deviceMap[deviceId]
+	_, found := s.deviceHeartbeatMap[deviceId]
 	// return 404 if not found
 	if !found {
-		errorResponse := api.Error{Code: 404, Message: "Device not found"}
+		errorResponse := api.Error{Code: http.StatusNotFound, Message: "Device not found"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(errorResponse)
@@ -67,17 +74,15 @@ func (s *Server) PostDevicesDeviceIdHeartbeat(w http.ResponseWriter, r *http.Req
 	// parse the timestamp
 	newTimestamp, tsError := time.Parse(time.RFC3339, newData.SentAt)
 	if tsError != nil {
-		errorResponse := api.Error{Code: 501, Message: "Invalid timestamp"}
+		errorResponse := api.Error{Code: http.StatusBadRequest, Message: "Invalid timestamp"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(errorResponse)
 		return
 	}
-	log.Printf("newTimestamp is %s", newTimestamp)
 
 	// insert the new data
-	s.deviceMap[deviceId] = append(s.deviceMap[deviceId], newTimestamp)
-	log.Printf("deviceMap is %s\n", s.deviceMap)
+	s.deviceHeartbeatMap[deviceId] = append(s.deviceHeartbeatMap[deviceId], newTimestamp)
 
 	// send conformation of success
 	w.Header().Set("Content-Type", "application/json")
@@ -92,20 +97,58 @@ func (s *Server) GetDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request,
 	// defer to guarantee it's unlocked later
 	defer s.deviceMutex.Unlock()
 	// validate the device exists in the db
-	deviceStats, found := s.deviceMap[deviceId]
+	deviceHeartbeats, heartbeatFound := s.deviceHeartbeatMap[deviceId]
+	deviceStats, statsFound := s.deviceStatsMap[deviceId]
 	// return 404 if not found
-	if !found {
-		errorResponse := api.Error{Code: 404, Message: "Device not found"}
+	if !heartbeatFound || !statsFound {
+		errorResponse := api.Error{Code: http.StatusNotFound, Message: "Device not found"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(errorResponse)
 		return
 	}
 
-	log.Printf("device stats %s", deviceStats)
+	// calculate uptime
+	var uptime float32
+	// check array length first
+	if len(deviceHeartbeats) == 0 {
+		uptime = 0.0
+	} else {
+		log.Printf("Calculating uptime")
+		sumHeartbeats := len(deviceHeartbeats)
+		firstTimestamp := deviceHeartbeats[0]
+		log.Printf("First timestamp %s", firstTimestamp.String())
+		lastTimestamp := deviceHeartbeats[len(deviceHeartbeats)-1]
+		log.Printf("lastTimestamp %s", lastTimestamp.String())
+		diff := lastTimestamp.Sub(firstTimestamp).Minutes()
+		// log.Printf("diff is %s", diff.String())
+		uptime = (float32(sumHeartbeats) / float32(diff)) * 100
+	}
+	// calculate upload time
+	var uploadTime string = ""
+	// check array length first
+	if len(deviceStats) == 0 {
+		log.Println("deviceStatns length is zero")
+		uploadTime = ""
+	} else {
+		log.Println("calculating average")
+		var totalSeconds float32 = 0
+		for _, stats := range deviceStats {
+			// need to convert uploadTime from nanoseconds to seconds
+			uploadTimeSeconds := float32(stats.UploadTime / 1e9)
+			totalSeconds += float32(uploadTimeSeconds)
+		}
+		log.Printf("total is %f\n", totalSeconds)
+		log.Printf("len is %d\n", len(deviceStats))
+		avg := totalSeconds / float32(len(deviceStats))
+		log.Printf("avg %f\n", avg)
+		// convert to string
+		uploadTime = time.Duration(avg * 1e9).String()
+	}
+	log.Printf("uploadTime is %s", uploadTime)
 	response := StatsGet{
-		Uptime:        7,
-		AvgUploadTime: "72",
+		Uptime:        uptime,
+		AvgUploadTime: uploadTime,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -127,10 +170,10 @@ func (s *Server) PostDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request
 	// defer to guarantee it's unlocked later
 	defer s.deviceMutex.Unlock()
 	// validate the device exists in the db
-	_, found := s.deviceMap[deviceId]
+	_, found := s.deviceStatsMap[deviceId]
 	// return 404 if not found
 	if !found {
-		errorResponse := api.Error{Code: 404, Message: "Device not found"}
+		errorResponse := api.Error{Code: http.StatusNotFound, Message: "Device not found"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(errorResponse)
@@ -140,16 +183,18 @@ func (s *Server) PostDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request
 	// parse the timestamp
 	newTimestamp, tsError := time.Parse(time.RFC3339, newData.SentAt)
 	if tsError != nil {
-		errorResponse := api.Error{Code: 501, Message: "Invalid timestamp"}
+		errorResponse := api.Error{Code: http.StatusBadRequest, Message: "Invalid timestamp"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(errorResponse)
 		return
 	}
-	log.Printf("newTimestamp is %s", newTimestamp)
+	newDeviceStats := DeviceStats{
+		SentAt:     newTimestamp,
+		UploadTime: newData.UploadTime,
+	}
 
-	s.deviceMap[deviceId] = append(s.deviceMap[deviceId], newTimestamp)
-	log.Printf("deviceMap is %s\n", s.deviceMap)
+	s.deviceStatsMap[deviceId] = append(s.deviceStatsMap[deviceId], newDeviceStats)
 
 	// send conformation of success
 	w.Header().Set("Content-Type", "application/json")
