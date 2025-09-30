@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -96,6 +95,7 @@ func (s *Server) GetDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request,
 	s.deviceMutex.Lock()
 	// defer to guarantee it's unlocked later
 	defer s.deviceMutex.Unlock()
+
 	// validate the device exists in the db
 	deviceHeartbeats, heartbeatFound := s.deviceHeartbeatMap[deviceId]
 	deviceStats, statsFound := s.deviceStatsMap[deviceId]
@@ -114,38 +114,32 @@ func (s *Server) GetDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request,
 	if len(deviceHeartbeats) == 0 {
 		uptime = 0.0
 	} else {
-		log.Printf("Calculating uptime")
 		sumHeartbeats := len(deviceHeartbeats)
 		firstTimestamp := deviceHeartbeats[0]
-		log.Printf("First timestamp %s", firstTimestamp.String())
 		lastTimestamp := deviceHeartbeats[len(deviceHeartbeats)-1]
-		log.Printf("lastTimestamp %s", lastTimestamp.String())
+		// the devices are expected to send one heartbeat ever minute
+		// so we need to use the number of minutes to calculate the uptime properly
+		// subtract the timestamps and convert
 		diff := lastTimestamp.Sub(firstTimestamp).Minutes()
-		// log.Printf("diff is %s", diff.String())
+		// now calculate the uptime percentage
 		uptime = (float32(sumHeartbeats) / float32(diff)) * 100
 	}
 	// calculate upload time
 	var uploadTime string = ""
 	// check array length first
 	if len(deviceStats) == 0 {
-		log.Println("deviceStatns length is zero")
 		uploadTime = ""
 	} else {
-		log.Println("calculating average")
-		var totalSeconds float32 = 0
+		var totalSeconds float64 = 0
 		for _, stats := range deviceStats {
-			// need to convert uploadTime from nanoseconds to seconds
-			uploadTimeSeconds := float32(stats.UploadTime / 1e9)
-			totalSeconds += float32(uploadTimeSeconds)
+			// convert to time.Duration to make some of this easier
+			dur := time.Duration(stats.UploadTime)
+			totalSeconds += dur.Seconds()
 		}
-		log.Printf("total is %f\n", totalSeconds)
-		log.Printf("len is %d\n", len(deviceStats))
-		avg := totalSeconds / float32(len(deviceStats))
-		log.Printf("avg %f\n", avg)
+		avg := totalSeconds / float64(len(deviceStats))
 		// convert to string
 		uploadTime = time.Duration(avg * 1e9).String()
 	}
-	log.Printf("uploadTime is %s", uploadTime)
 	response := StatsGet{
 		Uptime:        uptime,
 		AvgUploadTime: uploadTime,
@@ -162,8 +156,6 @@ func (s *Server) PostDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request
 	if err := json.NewDecoder(r.Body).Decode(&newData); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 	}
-
-	log.Printf("newData is %s", newData.SentAt)
 
 	// lock the mutex for writing
 	s.deviceMutex.Lock()
