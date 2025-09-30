@@ -17,20 +17,24 @@ type Server struct {
 	deviceStatsMap     map[string][]DeviceStats
 }
 
+// struct for the device stats array
 type DeviceStats struct {
 	SentAt     time.Time `json:"sent_at"`
-	UploadTime int64     `json:"upload_time"`
+	UploadTime int64     `json:"upload_time"` // upload time is in nanoseconds
 }
 
+// struct for the incoming heartbeat POST requests
 type HeartbeatPost struct {
 	SentAt string `json:"sent_at"`
 }
 
+// struct for the incoming stats POST requests
 type StatsPost struct {
 	SentAt     string `json:"sent_at"`
 	UploadTime int64  `json:"upload_time"` // upload time is in nanoseconds, use int64
 }
 
+// response struct for the stats GET requests
 type StatsGet struct {
 	Uptime        float32 `json:"uptime"`
 	AvgUploadTime string  `json:"avg_upload_time"`
@@ -73,6 +77,7 @@ func (s *Server) PostDevicesDeviceIdHeartbeat(w http.ResponseWriter, r *http.Req
 	// parse the timestamp
 	newTimestamp, tsError := time.Parse(time.RFC3339, newData.SentAt)
 	if tsError != nil {
+		// bad request wasn't specified in the api spec but it is the standard response for this situation
 		errorResponse := api.Error{Code: http.StatusBadRequest, Message: "Invalid timestamp"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -116,14 +121,16 @@ func (s *Server) GetDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request,
 	} else {
 		sumHeartbeats := len(deviceHeartbeats)
 		firstTimestamp := deviceHeartbeats[0]
+		// assuming that all heartbeats were received in chronological order
 		lastTimestamp := deviceHeartbeats[len(deviceHeartbeats)-1]
-		// the devices are expected to send one heartbeat ever minute
+		// the devices are expected to send one heartbeat every minute
 		// so we need to use the number of minutes to calculate the uptime properly
 		// subtract the timestamps and convert
 		diff := lastTimestamp.Sub(firstTimestamp).Minutes()
 		// now calculate the uptime percentage
 		uptime = (float32(sumHeartbeats) / float32(diff)) * 100
 	}
+
 	// calculate upload time
 	var uploadTime string = ""
 	// check array length first
@@ -137,7 +144,8 @@ func (s *Server) GetDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request,
 			totalSeconds += dur.Seconds()
 		}
 		avg := totalSeconds / float64(len(deviceStats))
-		// convert to string
+		// time.Duration works in nanoseconds, so we need to convert seconds as part of this
+		// there are 1e9 nanoseconds in every second
 		uploadTime = time.Duration(avg * 1e9).String()
 	}
 	response := StatsGet{
@@ -175,6 +183,7 @@ func (s *Server) PostDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request
 	// parse the timestamp
 	newTimestamp, tsError := time.Parse(time.RFC3339, newData.SentAt)
 	if tsError != nil {
+		// bad request wasn't specified in the api spec but it is the standard response for this situation
 		errorResponse := api.Error{Code: http.StatusBadRequest, Message: "Invalid timestamp"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
