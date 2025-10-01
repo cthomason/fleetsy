@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"net/http"
@@ -20,7 +19,7 @@ import (
 
 func main() {
 
-	// open the fleetsy file
+	// open the devices file
 	file, err := os.Open("devices.csv")
 
 	if err != nil {
@@ -44,7 +43,6 @@ func main() {
 		deviceHeartbeatMap[eachrecord[0]] = []time.Time{}
 		deviceStatsMap[eachrecord[0]] = []handlers.DeviceStats{}
 	}
-	fmt.Printf("deviceMap is %s\n", deviceHeartbeatMap)
 
 	// Clean up the file because we don't need it anymore
 	file.Close()
@@ -52,10 +50,12 @@ func main() {
 	// Initialize api server
 	apiServer := handlers.NewServer(deviceHeartbeatMap, deviceStatsMap)
 
+	// initialize api router
 	apiRouter := chi.NewRouter()
 	// register the handlers
 	apiHandler := api.HandlerFromMux(apiServer, apiRouter)
 
+	// create main router so we can put the handlers on the right path
 	mainRouter := chi.NewRouter()
 	mainRouter.Use(middleware.Logger)
 	mainRouter.Use(middleware.Recoverer)
@@ -69,15 +69,15 @@ func main() {
 	mainRouter.Mount("/api/v1", apiHandler)
 
 	// for debugging purposes
-	log.Println(("registered routes"))
-	walkFunc := func(method string, route string, handler http.Handler, millewares ...func(http.Handler) http.Handler) error {
-		route = strings.Replace(route, "/*/", "/", -1)
-		log.Printf("%s %s\n", method, route)
-		return nil
-	}
-	if err := chi.Walk(mainRouter, walkFunc); err != nil {
-		log.Panicf("Error walking routes: %s\n", err.Error())
-	}
+	// log.Println(("registered routes"))
+	// walkFunc := func(method string, route string, handler http.Handler, millewares ...func(http.Handler) http.Handler) error {
+	// 	route = strings.Replace(route, "/*/", "/", -1)
+	// 	log.Printf("%s %s\n", method, route)
+	// 	return nil
+	// }
+	// if err := chi.Walk(mainRouter, walkFunc); err != nil {
+	// 	log.Panicf("Error walking routes: %s\n", err.Error())
+	// }
 
 	// start the server
 	port := 8080

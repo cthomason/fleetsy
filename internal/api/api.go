@@ -56,7 +56,9 @@ func (s *Server) PostDevicesDeviceIdHeartbeat(w http.ResponseWriter, r *http.Req
 	// read the new heartbeat
 	var newData HeartbeatPost
 	if err := json.NewDecoder(r.Body).Decode(&newData); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		// Normally I'd use http.StatusBadRequest but the spec says the only http codes allowed here are 204, 404, and 500
+		http.Error(w, "Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	// lock the mutex for writing
@@ -77,11 +79,8 @@ func (s *Server) PostDevicesDeviceIdHeartbeat(w http.ResponseWriter, r *http.Req
 	// parse the timestamp
 	newTimestamp, tsError := time.Parse(time.RFC3339, newData.SentAt)
 	if tsError != nil {
-		// bad request wasn't specified in the api spec but it is the standard response for this situation
-		errorResponse := api.Error{Code: http.StatusBadRequest, Message: "Invalid timestamp"}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(errorResponse)
+		// Normally I'd use http.StatusBadRequest but the spec says the only http codes allowed here are 204, 404, and 500
+		http.Error(w, "Server Error", http.StatusInternalServerError)
 		return
 	}
 
@@ -152,6 +151,7 @@ func (s *Server) GetDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request,
 		Uptime:        uptime,
 		AvgUploadTime: uploadTime,
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
@@ -162,7 +162,9 @@ func (s *Server) PostDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request
 	// read the new heartbeat
 	var newData StatsPost
 	if err := json.NewDecoder(r.Body).Decode(&newData); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		// Normally I'd use http.StatusBadRequest but the spec says the only http codes allowed here are 204, 404, and 500
+		http.Error(w, "Invalid request body", http.StatusInternalServerError)
+		return
 	}
 
 	// lock the mutex for writing
@@ -183,13 +185,11 @@ func (s *Server) PostDevicesDeviceIdStats(w http.ResponseWriter, r *http.Request
 	// parse the timestamp
 	newTimestamp, tsError := time.Parse(time.RFC3339, newData.SentAt)
 	if tsError != nil {
-		// bad request wasn't specified in the api spec but it is the standard response for this situation
-		errorResponse := api.Error{Code: http.StatusBadRequest, Message: "Invalid timestamp"}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(errorResponse)
+		// Normally I'd use http.StatusBadRequest but the spec says the only http codes allowed here are 204, 404, and 500
+		http.Error(w, "Invalid request body", http.StatusInternalServerError)
 		return
 	}
+
 	newDeviceStats := DeviceStats{
 		SentAt:     newTimestamp,
 		UploadTime: newData.UploadTime,
